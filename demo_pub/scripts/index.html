@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ROS WebSocket Demo</title>
+    <style>
+        .block {
+            font-size: 24px;
+            margin: 20px;
+            padding: 20px;
+            border: 2px solid #000;
+            border-radius: 10px;
+            width: fit-content;
+            background-color: #f0f0f0;
+        }
+        .charging {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .not-charging {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .percentage {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .moving {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .not-moving {
+            background-color: #e2e3e5;
+            color: #6c757d;
+        }
+        .emergency-button {
+            font-size: 24px;
+            margin: 20px;
+            padding: 20px;
+            background-color: #ff0000;
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .emergency-button:hover {
+            background-color: #cc0000;
+        }
+    </style>
+</head>
+<body>
+    <div id="chargingStatus" class="block not-charging">Charging status: Waiting for messages...</div>
+    <div id="percentage" class="block percentage">Percentage: Waiting for messages...</div>
+    <div id="movementStatus" class="block not-moving">Movement status: Waiting for messages...</div>
+    <button id="emergencyButton" class="emergency-button">Emergency Shutdown</button>
+
+    <!-- Load ROSLIB from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/roslib@1.3.0/build/roslib.min.js"></script>
+    <script>
+        var chargingStatusDiv = document.getElementById('chargingStatus');
+        var percentageDiv = document.getElementById('percentage');
+        var movementStatusDiv = document.getElementById('movementStatus');
+        var emergencyButton = document.getElementById('emergencyButton');
+        var lastMessageTime = 0;
+        var updateInterval = 10000;  // 10 seconds
+
+        function updateDisplay(charge, percentage) {
+            if (charge === null) {
+                chargingStatusDiv.textContent = 'Charging status: Not Charging';
+                chargingStatusDiv.className = 'block not-charging';
+            } else {
+                chargingStatusDiv.textContent = 'Charging status: Charging';
+                chargingStatusDiv.className = 'block charging';
+            }
+
+            percentageDiv.textContent = 'Percentage: ' + (percentage * 100).toFixed(2) + '%';
+        }
+
+        function updateMovementStatus(linear, angular) {
+            if (linear.x === 0.0 && linear.y === 0.0 && linear.z === 0.0 &&
+                angular.x === 0.0 && angular.y === 0.0 && angular.z === 0.0) {
+                movementStatusDiv.textContent = 'Movement status: Not moving';
+                movementStatusDiv.className = 'block not-moving';
+            } else {
+                movementStatusDiv.textContent = 'Movement status: Collecting';
+                movementStatusDiv.className = 'block moving';
+            }
+        }
+
+        var ros = new ROSLIB.Ros({
+            url: 'ws://145.94.219.213:9090'
+        });
+
+        ros.on('connection', function() {
+            console.log('Connected to websocket server.');
+
+            var powerWatcherListener = new ROSLIB.Topic({
+                ros: ros,
+                name: '/mirte/power/power_watcher',
+                messageType: 'sensor_msgs/BatteryState'
+            });
+
+            powerWatcherListener.subscribe(function(message) {
+                var currentTime = Date.now();
+                if (currentTime - lastMessageTime >= updateInterval) {
+                    updateDisplay(message.charge, message.percentage);
+                    lastMessageTime = currentTime;
+                }
+            });
+
+            var cmdVelListener = new ROSLIB.Topic({
+                ros: ros,
+                name: '/mobile_base_controller/cmd_vel',
+                messageType: 'geometry_msgs/Twist'
+            });
+
+            cmdVelListener.subscribe(function(message) {
+                updateMovementStatus(message.linear, message.angular);
+            });
+            
+            emergencyButton.addEventListener('click', function() {
+		fetch('http://145.94.192.79:8081/shutdown', {
+			method: 'POST'
+		})
+		.then(response => response.text())
+		.then(data => {
+			console.log(data);
+		})
+		.catch(error => {
+			console.error('Error:', error);
+		});
+	     });
+
+        });
+
+        ros.on('error', function(error) {
+            console.log('Error connecting to websocket server: ' + error);
+        });
+
+        ros.on('close', function() {
+            console.log('Connection to websocket server closed.');
+        });
+    </script>
+</body>
+</html>
+
